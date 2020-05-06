@@ -1,0 +1,156 @@
+---
+output:
+  html_document:
+    theme: cosmo
+title: "COVID-19 Risk calculator"
+subtitle: 'Overview' 
+date: '`r Sys.time()`'
+---
+
+--------
+
+
+```{r setup, echo=F, message=FALSE, warning=FALSE}
+# Load packages
+library(tidyverse)
+library(lubridate)
+library(ggiraph)
+library(ggridges)
+library(scales)
+library(patchwork)
+library(DT)
+
+# Code display options
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = F, message=FALSE, warning=FALSE, fig.align="center", fig.retina = 2)
+
+```
+
+This is a computationally generated report that serves as an overview of US counties. It uses recent COVID-19 case data that is curated by The New York Times and is available in their [github repository](https://github.com/nytimes/covid-19-data). We will calculate the percentage of people recently infected in each county and use that to estimate the chance of running into an infected person in a few different scenarios. This project was directly inspired by the work of [Joshua Weitz](https://twitter.com/joshuasweitz) at Georgia Tech.
+
+Let's first calculate the percent of each county's population that has been reported infected in the last two weeks. We do this by finding the number of new cases reported in the last two weeks and dividing by the estimated 2019 population of the county. 
+
+```{r}
+#df <- read_csv("data/2020_05_03_us-counties.csv")
+
+df <- read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv')
+
+write_csv(df, 'data/current_county_cases_NYT.csv')
+
+last_update <- as.Date("2020-05-05")
+
+df_recent_sums <- df %>% 
+  filter(date >= last_update - days(14)) %>% 
+  group_by(county, state, fips) %>% 
+  summarise(recent_cases = max(cases) - min(cases), recent_deaths = max(deaths) - min(deaths))
+
+pop <- read_csv('data/co-est2019-alldata.csv') %>% 
+  mutate(fips = paste0(STATE,COUNTY)) %>% 
+  select(fips, pop2019 = POPESTIMATE2019)
+
+df_recent_sums_pop <- left_join(df_recent_sums, pop, by = 'fips') %>% 
+  filter(!is.na(pop2019)) %>% 
+  mutate(f_inf_rep = recent_cases / pop2019) %>% 
+  mutate(tooltip = paste0(county, ' county, ', state, 
+                          '\n recent cases: ',recent_cases,
+                          '\n recent prevalence: ', number(f_inf_rep * 100, accuracy = 0.01), '%'))
+
+
+write_csv(df_recent_sums_pop, "data/current_county_pre_calc_prevalence.csv")
+
+overall_med_f_inf_rep <- median(df_recent_sums_pop$f_inf_rep, na.rm = T)
+
+overall_mean_f_inf_rep <- mean(df_recent_sums_pop$f_inf_rep, na.rm = T)
+
+overall_max_f_inf_rep <- max(df_recent_sums_pop$f_inf_rep, na.rm = T)
+
+overall_min_f_inf_rep <- min(df_recent_sums_pop$f_inf_rep, na.rm = T)
+
+p1 <- ggplot(df_recent_sums_pop %>% filter(f_inf_rep>0)) + 
+  geom_density(aes(x = f_inf_rep), fill='gray')  + 
+  geom_vline(xintercept = overall_med_f_inf_rep) +
+  scale_x_log10(labels = scales::percent) +
+  labs(x = NULL, title = paste0("The median US county reported ", percent(overall_med_f_inf_rep), " infected\nin the last two weeks.")) +theme_bw() +theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ggplot(df_recent_sums_pop %>% filter(f_inf_rep>0)) + 
+  geom_jitter_interactive(aes(x = f_inf_rep, y = 'US counties', tooltip = tooltip, data_id = state), shape = 21, fill = 'gray', alpha = 0.5)+
+ # geom_boxplot_interactive(aes(x = f_inf_rep, tooltip = county)) + 
+  scale_x_log10(labels = scales::percent) + 
+  labs(title = paste0(''), y = NULL, x = 'Percent of county reported infected in the last 2 weeks',
+       caption = "Secondary highlighted points show counties from the same state.")+theme_bw()
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(code = print(p1 / p2), options = list(opts_hover(css = "fill:red;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+       )
+```
+
+The median county reported **`r percent(overall_med_f_inf_rep)`** as the fraction of their population that was infected during the last two weeks. There is wide variation across the country, with certain counties reporting **`r percent(overall_min_f_inf_rep)`**, while other counties are reporting up to **`r percent(overall_max_f_inf_rep)`**. 
+
+As states reopen, we may wonder, **"What is the chance someone around me is infected?"** Although the chance that any individual person is infected may remain small, as we interact with more and more people the chances go up dramatically. Below is a plot to explore the chance that a subset of people within a county has at least one person infected. Simply, we can estimate this by calculating the probability that no one is infected. **[See here for more details.](https://scott-saunders.github.io/covid_risk_calculator/details.html)**
+
+This calculation assumes that everyone is all mixed together and makes some other back of the envelope assumptions, but it can help us think about the situations we experience every day. **Is it likely there is someone infected in this Target/Walmart? Grocery store? Is it likely that I passed someone on the street who was infected?** These questions depend entirely on how many people we are talking about (and the percentage of people infected). 
+
+```{r}
+calculate_risk <- function(f_inf, n){
+  1-(1-f_inf)^n
+}
+
+df <- expand_grid(f_inf = seq(0, 0.05, 0.001), n = seq(0, 250, 5))
+
+df_calc <- df %>% 
+  mutate(risk = calculate_risk(f_inf, n))
+
+
+df_calc_styled <- df_calc %>% 
+  mutate(tooltip = paste("If ",percent(f_inf)," of people are infected,",
+                         '\n', "for a group of ",n, " people,",
+                         '\n', "there is a ", percent(risk), " chance that\nat least 1 person is infected.",
+                         sep = '')) %>% 
+  mutate(id = paste(f_inf,n,sep='-'))
+
+p3 <- ggplot(df_calc_styled, aes(x = f_inf, y = n, fill = risk)) + 
+  geom_tile_interactive(aes( tooltip = tooltip, data_id = id), color = 'black')+
+  scale_x_continuous(labels = scales::percent) +
+  scale_fill_gradient(low = 'white', high = '#BC120A',
+                      labels = scales::percent, 
+                      name = "Chance at least\n1 person\nis infected")+
+  labs(x = "Population level infection rate", y = "# people in a group") + 
+  theme_bw()
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(ggobj = p3, options = list(opts_hover(css = "fill:black;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+       )
+
+```
+
+**What conclusions can we draw from this data?** For most counties, there seems to be a low percentage of people infected. However, as we run into more and more people, the chance that we are encountering infected people is rarely zero. Often it is actually quite likely. Therefore, the safest assumption is that we are interacting with infected people whenever we see more than a few people. **Things may seem normal, but continue to stay vigilant.**
+
+Below is a list of all counties in the US with the data used to construct the above plots. Each entry has a link to a customized report for that county. 
+
+```{r}
+df_links <- df_recent_sums_pop %>% 
+  mutate(percent_recently_infected = round(f_inf_rep * 100, digits = 2)) %>% select(-c(f_inf_rep, tooltip)) %>% 
+  mutate(id = paste0(state,"_",county)) %>% 
+  mutate(id = sub(" ", "_", id)) %>% 
+  mutate(report =  paste0('<a  target=_blank href=https://scott-saunders.github.io/covid_risk_calculator/county_reports/Report_',id,'.html', '> link </a>' )) %>% 
+  select(-c(fips,id))
+
+
+datatable(df_links, options = list(pageLength = 5), escape = F)
+
+```
+
+
+-----
+<center>
+Project by [Scott H. Saunders](https://scott-saunders.github.io/website/)
+<br>
+Code available here: [github repository](https://github.com/scott-saunders/covid_risk_calculator)
+</center>

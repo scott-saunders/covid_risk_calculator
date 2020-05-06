@@ -1,0 +1,179 @@
+---
+output:
+  html_document:
+    theme: cosmo
+title: "COVID-19 Risk calculator"
+subtitle: 'Details' 
+date: '`r Sys.time()`'
+---
+
+--------
+
+
+```{r setup, echo=F, message=FALSE, warning=FALSE}
+# Load packages
+library(tidyverse)
+library(lubridate)
+library(ggiraph)
+library(scales)
+library(viridis)
+library(cowplot)
+
+# Code display options
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = F, message=FALSE, warning=FALSE, fig.align="center", fig.retina = 2)
+
+# Load plotting tools
+#source("../tools/plotting_tools.R")
+
+
+#Modify the plot theme
+#theme_set(theme_notebook())
+```
+
+# The Calculation
+
+-----
+
+This calculation simply asks the question: **What is the probability that no one is infected?** The probability that at least one person is infected will be 1 minus that value. Credit to [Joshua Weitz](https://twitter.com/joshuasweitz) for this idea.
+
+The probability that any individual person is infected is the overall or population level infection rate, 
+$$p_i$$ 
+
+The probability they are not infected is
+
+$$1-p_i$$. 
+
+The probability that multiple people, $n$ are not infected is 
+
+$$(1-p_i)^n$$
+
+Finally, the probability that one or more people are infected among $n$ people is 
+
+$$1-(1-p_i)^n$$
+
+This is implemented very simply in code as a function that takes $p_i$ and $n$ as parameters and performs the calculation.
+
+```{r echo=T}
+calculate_risk <- function(p_i, n){
+  1-(1-p_i)^n
+}
+```
+
+This allows us to calculate the risk that at least one person is infected under any theoretical scenario. 
+
+For example: what if there were 1000 cases in the entire US, but we wanted to know what the odds are for a large event like the NCAA tournament (~100,000 people). Then $p_i = 1000 / 330,000,000$ and $n = 100,000$. 
+
+Let's do the calculation:
+
+```{r echo = T}
+result <- calculate_risk(p_i = 1000 / 330000000, n = 100000)
+
+percent(result)
+```
+
+So you can imagine that it is straighforward to use this function to calculate risk for all of the different scenarios shown in this project.
+
+# The Assumptions
+
+-----
+
+## Homogeneous mixing
+
+This calculation assumes a homogeneous population where infected people are perfectly mixed with uninfected people. Just like there is heterogeneity across the country, there is probably heterogeneity within each county. If infected people are very sick they may be at the hospital or quarantined at home and therefore not 'well mixed' within the county population. On the other hand, nearly all patients go through a period where they are shedding virus but are asymptomatic, and may unknowingly go about their normal business. Furthermore, while some patients subsequently get quite ill, some seem to remain asymptomatic. This homogeneity assumption forces us to ignore this complexity, but it allows us to make the very straightforward calculation shown above. 
+
+## Recent reported cases approximate infection prevalence
+
+For the calculation above we require the population level infection rate, $p_i$, but we do not know that true value at any given point in time. As Joshua Weitz did in his recent calculations, here we assume that the number of reported cases in the past two weeks (14 days) approximate the current number of infectious people in the population. 
+
+There is uncertainty and likely large variability in how long patients remain infectious to other people. Certain model estimates are less than 4 days, but viral RNA can often be detected in severe cases for more than two weeks ([See COVID-19 by the numbers](https://elifesciences.org/articles/57309)). If infected people remain infectious for exactly two weeks, then the number of reported cases from the previous two weeks may accurately report the case number we seek. However, because very few people are tested without any symptoms (at this time), there is likely a significant lag in between the reported and current cases. Therefore, if new cases remain relatively constant over this time period, then this may be a reasonable approximation. If daily cases are changing dramatically up or down this assumption may skew the results. 
+
+# Bonus: Chances of specific number of infections
+
+-----
+
+The initial calculation simply calculates the probability that at least one person is infected, but we can do better! It's also reasonably straightforward to calculate the probability that a specific number of people are infected for a given set of parameters. 
+
+It turns out that this process is described by the [binomial probability distribution](https://en.wikipedia.org/wiki/Binomial_distribution). The binomial distribution describes the chance of a specific number of things happening, given the probability it happens, and the number of observations. For example, the chance that someone flips a coin 10 times and gets exactly 7 heads is 11.7%. This applies to our calculation because people are either infected or they're not with the probability $p_i$. We observe a certain number of people in the population, $n$. Then we can ask, how likely is it to find x number of infected people. 
+
+The binomial distribution is:
+
+$$ \frac{n!}{i!n-i!} p_i^i (1-p_i)^{n-i}$$
+
+where $i$ is the number of infected people in a group of size $n$.
+
+So, we can return to our grid of $n$ and $p_i$ and use the `dbinom()` function to calculate the chance of observing 0-10 infected people in each group. Let's look at the probability of each separately:
+
+```{r}
+df <- expand_grid(p_i = seq(0, 0.1, 0.0005), n = seq(0, 250, 5))
+
+df_calc <- df %>% 
+  mutate(risk = calculate_risk(p_i, n))
+
+df_calc_ml_num <- df_calc %>% 
+  mutate(i_0 = dbinom(x = 0, size = n, prob = p_i)) %>% 
+  mutate(i_1 = dbinom(x = 1, size = n, prob = p_i)) %>% 
+  mutate(i_2 = dbinom(x = 2, size = n, prob = p_i)) %>% 
+  mutate(i_3 = dbinom(x = 3, size = n, prob = p_i)) %>% 
+  mutate(i_4 = dbinom(x = 4, size = n, prob = p_i)) %>% 
+  mutate(i_5 = dbinom(x = 5, size = n, prob = p_i)) %>% 
+  mutate(i_6 = dbinom(x = 6, size = n, prob = p_i)) %>% 
+  mutate(i_7 = dbinom(x = 7, size = n, prob = p_i)) %>% 
+  mutate(i_8 = dbinom(x = 8, size = n, prob = p_i)) %>% 
+  mutate(i_9 = dbinom(x = 9, size = n, prob = p_i)) %>% 
+  mutate(i_10 = dbinom(x = 10, size = n, prob = p_i)) %>% 
+  pivot_longer(cols = -c(p_i, n, risk), names_to = 'i_inf', values_to = 'probability') %>% 
+  separate(i_inf, sep = "_", into = c('i','num_inf')) %>% 
+  mutate(num_inf = fct_reorder(num_inf, as.integer(num_inf)))
+
+
+ggplot(df_calc_ml_num, aes(x = p_i, y = n)) + 
+    geom_raster(aes(fill = probability)) +
+  scale_x_continuous(labels = scales::percent) +
+    scale_fill_viridis() + facet_wrap(~num_inf) + theme_bw() + 
+    labs(x = "Population level infection rate", y = "# people in a group", title = "")
+```
+
+This is interesting, but subtle. Because the probability gets spread across multiple possibilities the probability of each individual outcome goes down at higher $p_i$ and $n$.
+
+What we really want to know is, "What is the most likely number of infected people?" Let's look at the scenario for $p_i$ = 1%:
+
+```{r}
+p1 <- df_calc_ml_num %>% filter(p_i == 0.01) %>% 
+  ggplot(., aes(x = n, y = probability, color = num_inf)) + geom_path(size = 1) +
+  scale_color_viridis_d() + labs(x = "# people in a group", color = "# people infected") + theme_bw()
+
+p2 <- df_calc_ml_num %>% filter(p_i == 0.01) %>% 
+  group_by(p_i, n) %>% 
+  mutate(max_prob = max(probability, na.rm = T)) %>% 
+  filter(probability == max_prob) %>% 
+  ggplot(., aes(x = n, y = '', fill = num_inf)) + 
+  geom_tile() +
+  scale_fill_viridis_d(end = 0.2727273, guide = F) + 
+  theme_bw() + theme(plot.title = element_text(hjust = 0.5))+
+  labs(y = NULL, x = NULL, fill = NULL, title = paste0('For 1% prevalence, the mostly likely number of infected people')) 
+#library(cowplot)
+plot_grid(p2, p1, ncol = 1, align = 'v', axis = 'lr', rel_heights = c(1,3))
+
+```
+
+We can simplify the data by coloring tiles to signify the most likely number of infections. Doing that across the grid of possibilities gives this plot:
+
+```{r}
+df_calc_ml_num %>% group_by(p_i, n) %>% 
+  mutate(max_prob = max(probability, na.rm = T)) %>% 
+  filter(probability == max_prob) %>% 
+ggplot(., aes(x = p_i, y = n)) + 
+    geom_raster(aes(fill = num_inf)) +
+  scale_x_continuous(labels = scales::percent) +
+    scale_fill_viridis_d(name = 'Most likely\n# infected') + 
+  labs(x = "Population level infection rate", y = "# people in a group", title = 'Most Likely number of infected people') + theme_bw() + theme(plot.title = element_text(hjust = 0.5))
+```
+
+In the end we could have just multiplied $n$ by $p_i$ and rounded down to the nearest whole person, but now we know a little more!
+
+-----
+<center>
+Project by [Scott H. Saunders](https://scott-saunders.github.io/website/)
+<br>
+Code available here: [github repository](https://github.com/scott-saunders/covid_risk_calculator)
+</center>
