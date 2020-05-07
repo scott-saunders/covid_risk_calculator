@@ -87,6 +87,12 @@ For the calculation above we require the population level infection rate, $p_i$,
 
 There is uncertainty and likely large variability in how long patients remain infectious to other people. Certain model estimates are less than 4 days, but viral RNA can often be detected in severe cases for more than two weeks ([See COVID-19 by the numbers](https://elifesciences.org/articles/57309)). If infected people remain infectious for exactly two weeks, then the number of reported cases from the previous two weeks may accurately report the case number we seek. However, because very few people are tested without any symptoms (at this time), there is likely a significant lag in between the reported and current cases. Therefore, if new cases remain relatively constant over this time period, then this may be a reasonable approximation. If daily cases are changing dramatically up or down this assumption may skew the results. 
 
+## Using death rates to estimate case undercounting
+
+In several places we used reported deaths to estimate true cases, since death reporting may be more accurate than case reporting. We assumed that 1% of cases will die, so the true case load can be calculated by multiplying deaths by 100. This is a very imperfect set of assumptions, since there is considerable uncertainty in 1) the true number of deaths (deaths may be under reported) and 2) the case fatality rate. 
+
+Further, the lag issue discussed above is much worse when using deaths of patients infected many weeks ago to approximate current cases. Therefore if cases are going up or down significantly this estimate based on deaths can be highly skewed. That said, this assumption allowed us to perform a simple calculation to assess broadly how true cases *may* compare to reported cases. No one knows the true case numbers or the true probabilities discussed here, but these calculations help us to think about situations in a reasonable way.
+
 # Bonus: Chances of specific number of infections
 
 -----
@@ -176,4 +182,5 @@ In the end we could have just multiplied $n$ by $p_i$ and rounded down to the ne
 Project by [Scott H. Saunders](https://scott-saunders.github.io/website/)
 <br>
 Code available here: [github repository](https://github.com/scott-saunders/covid_risk_calculator)
+<br>
 </center>

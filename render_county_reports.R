@@ -29,4 +29,4 @@ for(fp in df$fips){
   render_report(fips = fp, id = state_county_id, state_name = state_id, county_name= county_id)
 }
 
-#render_report(fips = id, county_name = "ABCD", state_name = "Alabama")
+#render_report(fips = '13067', id = "Georgia_Cobb", county_name = "Cobb", state_name = "Georgia")

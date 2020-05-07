@@ -19,6 +19,7 @@ library(ggridges)
 library(scales)
 library(patchwork)
 library(DT)
+library(viridis)
 
 # Code display options
 knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = F, message=FALSE, warning=FALSE, fig.align="center", fig.retina = 2)
@@ -26,8 +27,6 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = F, mess
 ```
 
 This is a computationally generated report that serves as an overview of US counties. It uses recent COVID-19 case data that is curated by The New York Times and is available in their [github repository](https://github.com/nytimes/covid-19-data). We will calculate the percentage of people recently infected in each county and use that to estimate the chance of running into an infected person in a few different scenarios. This project was directly inspired by the work of [Joshua Weitz](https://twitter.com/joshuasweitz) at Georgia Tech.
-
-Let's first calculate the percent of each county's population that has been reported infected in the last two weeks. We do this by finding the number of new cases reported in the last two weeks and dividing by the estimated 2019 population of the county. 
 
 ```{r}
 #df <- read_csv("data/2020_05_03_us-counties.csv")
@@ -50,9 +49,13 @@ pop <- read_csv('data/co-est2019-alldata.csv') %>%
 df_recent_sums_pop <- left_join(df_recent_sums, pop, by = 'fips') %>% 
   filter(!is.na(pop2019)) %>% 
   mutate(f_inf_rep = recent_cases / pop2019) %>% 
+  mutate(undercount = ifelse(recent_cases >0 & recent_deaths >0, (recent_deaths*100) / recent_cases, NA)) %>% 
   mutate(tooltip = paste0(county, ' county, ', state, 
                           '\n recent cases: ',recent_cases,
-                          '\n recent prevalence: ', number(f_inf_rep * 100, accuracy = 0.01), '%'))
+                          '\n recent prevalence: ', number(f_inf_rep * 100, accuracy = 0.01), '%',
+                          '\n possible undercount: ', number(undercount, accuracy = 0.1), 'x'),
+         
+         )
 
 
 write_csv(df_recent_sums_pop, "data/current_county_pre_calc_prevalence.csv")
@@ -65,11 +68,78 @@ overall_max_f_inf_rep <- max(df_recent_sums_pop$f_inf_rep, na.rm = T)
 
 overall_min_f_inf_rep <- min(df_recent_sums_pop$f_inf_rep, na.rm = T)
 
+overall_recent_cases <- sum(df_recent_sums_pop$recent_cases, na.rm = T)
+
+overall_recent_deaths <- sum(df_recent_sums_pop$recent_deaths, na.rm = T)
+```
+
+## US counties have reported **`r number(overall_recent_cases, big.mark = ",")` cases** in the last 2 weeks
+
+---
+
+Let's look at total US cases over time. The country total is shown in red and individual counties are shown in black.
+
+```{r}
+#df %>% filter(!is.na(fips) & date >= as.Date("2020-03-01")) %>% filter(cases>=10)
+
+#df %>% group_by(date) %>% summarise(total_cases = sum(cases, na.rm = T))
+
+# ggplot(df %>% filter(!is.na(fips) & date >= as.Date("2020-03-01")) %>% filter(cases>=10), aes(x = date , y = cases, group = fips)) + 
+#   geom_path(alpha = 0.05) +scale_y_log10()
+
+
+# df_over_100 <- left_join(df %>% filter(!is.na(fips) & date >= as.Date("2020-03-01")) %>% filter(cases>=10),
+#                          #df %>% group_by(fips) %>% filter(cases>100) %>% summarise(date_over_100 = min(date, na.rm = T)),
+#                          df_recent_sums_pop,
+#                          by = 'fips')
+
+
+ggplot()+
+  geom_vline(xintercept = last_update - days(14), linetype = 2)+
+  geom_path(data = df %>% group_by(date) %>% summarise(total_cases = sum(cases, na.rm = T)) %>% filter(date >= as.Date("2020-03-01")),
+            aes(x = date, y = total_cases), color = 'red') +
+    geom_path(data = df %>% filter(!is.na(fips) & date >= as.Date("2020-03-01")) %>% filter(cases>=10),
+            aes(x = date, y = cases, group = fips), alpha = 0.05) +
+    scale_y_log10(labels = scales::comma)+
+  labs(y = 'Total reported cases', x = 'Date', caption= 'Dotted line shows two weeks. Data source: NYT') + 
+  theme_bw() 
+
+
+```
+
+We can see there has been a massive increase in cases in the past two months, and that the US cases have increased due to increases in many counties. The counties show wide variability, and looking closely we can see certain counties that experienced much later or earlier outbreaks. 
+
+What is slightly harder to see on the log scale used above, is that US cases are still increasing dramatically. Let's look at how many cases have been reported for each county in the last two weeks. We'll spread the counties out by their population size, since bigger counties tend to have more infections.
+
+```{r}
+
+plot_us_cases <- ggplot(df_recent_sums_pop, aes(x = pop2019 , y = recent_cases, tooltip = tooltip, data_id = state)) + 
+  geom_point_interactive(alpha = 0.5, shape =21, fill = 'gray')+
+  scale_y_log10(labels = scales::comma) + scale_x_log10(labels = scales::comma) +
+  theme_bw() + 
+  labs(x = 'Estimated county population (2019)', y = 'Cases reported in the last two weeks',caption = "Secondary highlighted points show counties from the same state. Data source: NYT and US census")
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(ggobj = plot_us_cases,  options = list(opts_hover(css = "fill:red;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+)
+```
+
+We can see that a lot of counties are reporting a lot of cases. How can we think about the risk of encountering infected people in each of these counties? Let's start by calculating the percent of each county's population that has been reported infected in the last two weeks. We do this by finding the number of new cases reported in the last two weeks and dividing by the estimated 2019 population of the county. 
+
+## The median US county reported **`r percent(overall_med_f_inf_rep)`** prevalence in the last two weeks
+
+---
+
+```{r}
 p1 <- ggplot(df_recent_sums_pop %>% filter(f_inf_rep>0)) + 
   geom_density(aes(x = f_inf_rep), fill='gray')  + 
   geom_vline(xintercept = overall_med_f_inf_rep) +
   scale_x_log10(labels = scales::percent) +
-  labs(x = NULL, title = paste0("The median US county reported ", percent(overall_med_f_inf_rep), " infected\nin the last two weeks.")) +theme_bw() +theme(plot.title = element_text(hjust = 0.5))
+  labs(x = NULL, y = 'Probability', title = paste0("The median US county reported ", percent(overall_med_f_inf_rep), " infected\nin the last two weeks.")) +theme_bw() +theme(plot.title = element_text(hjust = 0.5))
 
 p2 <- ggplot(df_recent_sums_pop %>% filter(f_inf_rep>0)) + 
   geom_jitter_interactive(aes(x = f_inf_rep, y = 'US counties', tooltip = tooltip, data_id = state), shape = 21, fill = 'gray', alpha = 0.5)+
@@ -87,11 +157,70 @@ girafe(code = print(p1 / p2), options = list(opts_hover(css = "fill:red;"),
        )
 ```
 
-The median county reported **`r percent(overall_med_f_inf_rep)`** as the fraction of their population that was infected during the last two weeks. There is wide variation across the country, with certain counties reporting **`r percent(overall_min_f_inf_rep)`**, while other counties are reporting up to **`r percent(overall_max_f_inf_rep)`**. 
+There is wide variation across the country, with certain counties reporting **`r percent(overall_min_f_inf_rep)`**, while other counties are reporting up to **`r percent(overall_max_f_inf_rep)`**. 
 
-As states reopen, we may wonder, **"What is the chance someone around me is infected?"** Although the chance that any individual person is infected may remain small, as we interact with more and more people the chances go up dramatically. Below is a plot to explore the chance that a subset of people within a county has at least one person infected. Simply, we can estimate this by calculating the probability that no one is infected. **[See here for more details.](https://scott-saunders.github.io/covid_risk_calculator/details.html)**
 
-This calculation assumes that everyone is all mixed together and makes some other back of the envelope assumptions, but it can help us think about the situations we experience every day. **Is it likely there is someone infected in this Target/Walmart? Grocery store? Is it likely that I passed someone on the street who was infected?** These questions depend entirely on how many people we are talking about (and the percentage of people infected). 
+## True cases are higher than reported cases
+
+---
+
+Practically, reported cases are a lower bound for the true cases and we can't really know the true number of cases in a county. Instead we can try to estimate the true number of cases crudely by looking at the death rate in each county. Sadly, US counties reported a total of  **`r number(overall_recent_deaths, big.mark = ",")`** deaths in the last two weeks. If we assumed cases and deaths were constant and that the death rate of COVID-19 is 1%, then we can estimate true cases as $(\text{deaths} * 100) / \text{cases}$. That would mean the true number of US cases is **`r number((overall_recent_deaths *100) / overall_recent_cases, accuracy = 0.1)`**x higher than reported.
+
+We can perform the same calculation for every US county to try correcting for the undercounting of true cases. 
+
+```{r}
+overall_med_undercount <- median(df_recent_sums_pop$undercount, na.rm = T)
+
+fold_label <- function(x){
+#e.g. 2 to 2x
+  lab <- paste(x, "x", sep = '')
+}
+
+p3 <- ggplot(df_recent_sums_pop %>% filter(undercount>0 )) + 
+  geom_vline(xintercept = 1, linetype = 2)+
+  geom_density(aes(x = undercount), fill='gray')  + 
+  geom_vline(xintercept = overall_med_undercount) +
+  scale_x_log10(labels = fold_label) +
+  labs(x = NULL, y = 'Probability', title = paste0("The median US county might be undercounting cases by ", number(overall_med_undercount, accuracy = 0.1), "x")) +
+  theme_bw() +theme(plot.title = element_text(hjust = 0.5))
+
+p4 <- ggplot(df_recent_sums_pop %>% filter(undercount>0)) + 
+  geom_vline(xintercept = 1, linetype = 2)+
+  geom_vline(xintercept = overall_med_undercount) +
+  geom_jitter_interactive(aes(x = undercount, y = 'US counties', tooltip = tooltip, data_id = state), shape = 21, fill = 'gray', alpha = 0.5)+
+ # geom_boxplot_interactive(aes(x = f_inf_rep, tooltip = county)) + 
+  scale_x_log10(labels = fold_label) + 
+  labs( y = NULL, x = 'True cases might be this many times higher', 
+       caption = 'Black line shows median county. Red line shows current county.')+theme_bw()
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(code = print(p3 / p4), options = list(opts_hover(css = "fill:red;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+       )
+```
+
+Currently, most US counties are probably undercounting cases by a lot.
+
+By this imperfect estimate, cases in the median US county are being undercounted by **`r number(overall_med_undercount, accuracy = 0.1)`x**. This is not a precise estimate, but hopefully that gives you a sense for the uncertainty in the reported values. 
+
+## What is the chance of runing into an infected person?
+
+---
+
+As states reopen, we may wonder, "What is the chance someone around me is infected?" **Although the chance that any individual person is infected may remain small, as we interact with more and more people the chances go up dramatically.** Below is a plot to explore the chance that a subset of people within this county has at least one person infected. Simply, we can estimate this by calculating the probability that no one is infected. The remaining probability is the chance someone is infected. **[See here for more details.](https://scott-saunders.github.io/covid_risk_calculator/details.html)**
+
+This calculation assumes that everyone is all mixed together and makes some other back of the envelope assumptions, but it can help us think about the situations we experience every day. 
+
+* **Is it likely there is someone infected in this Target/Walmart? Grocery store?**
+* **Could someone I passed on the street be infected?**
+* **What's the chance someone in my apartment complex has COVID-19?**
+
+The answers depend on how many people we are talking about (and the percentage of people infected). As you explore the plot below, think about these questions and how many people you encounter on a normal basis.
+
+The plot below shows the chance that at least one person is infected in a subset of people, depending on the number of people in the subset and the fraction of the population that is infected.
 
 ```{r}
 calculate_risk <- function(f_inf, n){
@@ -111,7 +240,7 @@ df_calc_styled <- df_calc %>%
                          sep = '')) %>% 
   mutate(id = paste(f_inf,n,sep='-'))
 
-p3 <- ggplot(df_calc_styled, aes(x = f_inf, y = n, fill = risk)) + 
+p5 <- ggplot(df_calc_styled, aes(x = f_inf, y = n, fill = risk)) + 
   geom_tile_interactive(aes( tooltip = tooltip, data_id = id), color = 'black')+
   scale_x_continuous(labels = scales::percent) +
   scale_fill_gradient(low = 'white', high = '#BC120A',
@@ -122,7 +251,7 @@ p3 <- ggplot(df_calc_styled, aes(x = f_inf, y = n, fill = risk)) +
 
 tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
 
-girafe(ggobj = p3, options = list(opts_hover(css = "fill:black;"), 
+girafe(ggobj = p5, options = list(opts_hover(css = "fill:black;"), 
                                   opts_tooltip(css = tooltip_css, opacity = 1), 
                                   opts_selection(type = 'none'),
                                   opts_sizing(rescale = T, width = 0.7))
@@ -130,27 +259,66 @@ girafe(ggobj = p3, options = list(opts_hover(css = "fill:black;"),
 
 ```
 
-**What conclusions can we draw from this data?** For most counties, there seems to be a low percentage of people infected. However, as we run into more and more people, the chance that we are encountering infected people is rarely zero. Often it is actually quite likely. Therefore, the safest assumption is that we are interacting with infected people whenever we see more than a few people. **Things may seem normal, but continue to stay vigilant.**
 
-Below is a list of all counties in the US with the data used to construct the above plots. Each entry has a link to a customized report for that county. 
+```{r}
+n100_rep <- calculate_risk(f_inf = overall_med_f_inf_rep, n = 100)
+n100_5x <- calculate_risk(f_inf = overall_med_f_inf_rep*5, n = 100)
+n100_10x <- calculate_risk(f_inf = overall_med_f_inf_rep*10, n = 100)
+
+n1 <- calculate_risk(f_inf = 0.01, n = 100)
+```
+For example, if we expect to see **100 people** at the grocery store in a county with **1% infected**, what is the chance someone in the store is infected? 
+
+* The chance is **`r percent(n1)`**
+
+The median county has a reported prevalence of **`r percent(overall_med_f_inf_rep)`**, so for a grocery store in that county:
+
+* If all of the true cases are reported, then the chance is **`r percent(n100_rep)`.**
+* If true cases are 5x higher, then the chance is **`r percent(n100_5x)`.**
+* If true cases are 10x higher, then the chance is **`r percent(n100_10x)`.**
+
+We can't know what the true chance is, but hopefully this back of the envelope calculation helps you to think about some common scenarios in a reasonable way.
+
+Below is a list of all counties in the US with the data used to construct the above plots. Each entry has a link to a **customized report for that county**. 
+
+----
 
 ```{r}
 df_links <- df_recent_sums_pop %>% 
   mutate(percent_recently_infected = round(f_inf_rep * 100, digits = 2)) %>% select(-c(f_inf_rep, tooltip)) %>% 
+  mutate(undercount = round(undercount, digits = 1)) %>% 
   mutate(id = paste0(state,"_",county)) %>% 
   mutate(id = sub(" ", "_", id)) %>% 
   mutate(report =  paste0('<a  target=_blank href=https://scott-saunders.github.io/covid_risk_calculator/county_reports/Report_',id,'.html', '> link </a>' )) %>% 
   select(-c(fips,id))
 
 
-datatable(df_links, options = list(pageLength = 5), escape = F)
+datatable(df_links, options = list(pageLength = 5), escape = F,)
 
 ```
 
+-----
+
+So, what is the chance of encountering an infected person?
+
+## The chance is rarely zero.
+
+---
+
+What conclusions can we draw from this data? For most counties, there seems to be a low percentage of people infected. However, as we run into more and more people, the chance that we are encountering infected people is rarely zero. Often it is actually quite likely. Therefore, the safest assumption is that we are interacting with infected people whenever we see more than a few people. 
+
+What can we do? People will make their own decisions, but there are some clear actions that we can take to minimize our risk.
+
+1. **Continue to physically distance.** The fewer people we interact with the lower the risk. Especially avoid large groups of people in tight spaces.
+2. **When we must interact with people, we should assume someone is infected.** That means taking reasonable precautions like wearing facemasks, washing hands, and keeping as much distance as possible.
+
+Things may seem normal, but continue to stay vigilant. Good luck.
 
 -----
+
 <center>
 Project by [Scott H. Saunders](https://scott-saunders.github.io/website/)
 <br>
 Code available here: [github repository](https://github.com/scott-saunders/covid_risk_calculator)
+<br>
 </center>

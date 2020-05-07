@@ -1,0 +1,43 @@
+---
+output:
+  html_document:
+    theme: cosmo
+params:
+  state_id: 'Alabama'
+  state_name: 'Alabama'
+title: "COVID-19 Risk calculator"
+subtitle: '`r paste0("for ",params$state_name)`' 
+date: '`r Sys.time()`'
+---
+
+--------
+
+
+```{r setup, echo=F, message=FALSE, warning=FALSE}
+# Load packages
+library(tidyverse)
+library(lubridate)
+library(ggiraph)
+library(scales)
+library(ggridges)
+
+# Code display options
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=FALSE, echo = F, message=FALSE, warning=FALSE, fig.align="center", fig.retina = 2)
+
+```
+
+```{r}
+df <- read_csv("data/current_county_cases_NYT.csv")
+
+df_recent_sums_pop <- read_csv("data/current_county_pre_calc_prevalence.csv")
+
+last_update <- as.Date("2020-05-05")
+
+df_state <- df %>% filter(state == params$state_name)
+
+df_recent_state <- df_recent_sums_pop %>% filter(state == params$state_name)
+```
+
+```{r}
+ggplot(df_state, aes(x = date, y = cases, group = fips)) + geom_path(alpha= 0.25) #+ scale_y_log10()
+```
