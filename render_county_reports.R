@@ -16,7 +16,7 @@ df <- read_csv("data/current_county_cases_NYT.csv") %>%
   mutate(id = paste0(state,"_",county)) %>% 
   mutate(id = sub(" ", "_", id)) %>% 
   group_by(id, state, county, fips) %>% summarise() %>% 
-  filter(state == 'California')
+  filter(state == 'Georgia')
 
 for(fp in df$fips){
 
