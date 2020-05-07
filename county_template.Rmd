@@ -46,7 +46,7 @@ county_f_inf_rep <- (df_recent_sums_pop %>% filter(fips == params$fips))$f_inf_r
 
 This is a computationally generated report for this county. It uses recent COVID-19 case data that is curated by The New York Times and is available in their [github repository](https://github.com/nytimes/covid-19-data). We will calculate the percentage of people recently infected in this county and use that to estimate the chance of running into an infected person in a few different scenarios. This project was directly inspired by the work of [Joshua Weitz](https://twitter.com/joshuasweitz) at Georgia Tech.
 
-## `r params$county_name` county has reported **`r county_recent_cases` cases** in the last 2 weeks
+## `r params$county_name` county has reported **`r number(county_recent_cases, big.mark = ",")` cases** in the last 2 weeks
 
 ---
 
