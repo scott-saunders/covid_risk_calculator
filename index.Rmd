@@ -206,7 +206,7 @@ Currently, most US counties are probably undercounting cases by a lot.
 
 By this imperfect estimate, cases in the median US county are being undercounted by **`r number(overall_med_undercount, accuracy = 0.1)`x**. This is not a precise estimate, but hopefully that gives you a sense for the uncertainty in the reported values. 
 
-## What is the chance of runing into an infected person?
+## What is the chance of running into an infected person?
 
 ---
 

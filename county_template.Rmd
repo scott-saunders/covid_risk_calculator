@@ -142,7 +142,7 @@ Currently, most US counties are probably undercounting cases by a lot.
 
 By this imperfect estimate, cases in `r params$county_name` county are being undercounted by **`r number((county_recent_deaths* 100) / county_recent_cases , big.mark = ",")`x**. This is not a precise estimate, but hopefully that gives you a sense for the uncertainty in the reported values. For now, let's just consider scenarios where there are actually 5x or 10x the number of reported cases in the county. 
 
-## What is the chance of runing into an infected person?
+## What is the chance of running into an infected person?
 
 ---
 

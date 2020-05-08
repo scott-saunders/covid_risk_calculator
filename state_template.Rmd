@@ -39,5 +39,86 @@ df_recent_state <- df_recent_sums_pop %>% filter(state == params$state_name)
 ```
 
 ```{r}
-ggplot(df_state, aes(x = date, y = cases, group = fips)) + geom_path(alpha= 0.25) #+ scale_y_log10()
+p_left <- df_state %>% 
+  filter(date > as.Date("2020-04-15")) %>% 
+  group_by(fips) %>% 
+  mutate(min_cases = min(cases, na.rm = T)) %>% 
+  mutate(new_cases = cases - min_cases) %>% 
+  ggplot(., aes(x = date, y = new_cases, group = fips)) + 
+  geom_path_interactive(aes(tooltip = county, data_id = fips),alpha= 0.25) #+ scale_y_log10()
+
+p_right <- ggplot(df_recent_state, aes(x = pop2019, y = recent_cases)) + 
+  geom_point_interactive(aes(tooltip = tooltip, data_id = fips), shape = 21, fill = 'gray') + 
+  scale_x_log10() +scale_y_log10()
+
+p_left | p_right
+
+girafe(code = print(p_left | p_right), options = list(opts_hover(css = "stroke-width:1.5;stroke-opacity:1;")))
+```
+
+
+```{r}
+
+#devtools::install_github("UrbanInstitute/urbnmapr")
+library(urbnmapr)
+library(ggmap)
+
+p2 <-  
+  left_join(urbnmapr::counties, df_recent_sums_pop,by = c("county_fips" = 'fips')) %>% 
+#  filter(state_name ==params$state_name) %>% 
+  filter(state_name =='Georgia') %>% 
+  ggplot(mapping = aes(long, lat)) +
+  geom_polygon_interactive(aes( fill = f_inf_rep, tooltip = tooltip, data_id = county_fips), color = "#ffffff", size = .25) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  theme(legend.title = element_text(),
+        legend.key.width = unit(.5, "in")) + scale_fill_viridis(labels = percent, name = '% county\nreported infected\nin last 2 weeks') + theme_nothing(legend = T)
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(ggobj = p2,  options = list(opts_hover(css = "fill-opacity:0.75;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+)
+
+```
+
+```{r}
+
+p_all_US <-  
+  left_join(urbnmapr::counties, df_recent_sums_pop,by = c("county_fips" = 'fips')) %>% 
+  ggplot(mapping = aes(long, lat)) +
+  geom_polygon_interactive(aes( fill = f_inf_rep, tooltip = tooltip, data_id = county_fips), size = .25) +
+  geom_polygon(data = states, aes(group = group), color = 'black', fill = NA, size = .25)+
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  theme(legend.title = element_text(),
+        legend.key.width = unit(.5, "in")) + 
+  scale_fill_viridis(labels = percent, 
+                     name = '% county\nreported infected\nin last 2 weeks', 
+                     trans = 'log', 
+                     breaks = c(0.01, 0.001, 0.0001), na.value = 'light gray') + 
+  theme_nothing(legend = T)
+
+tooltip_css <- "background-color:LightGray;padding:10px;border-style:solid;border-color:black;border-width:1px;color:black;"
+
+girafe(ggobj = p_all_US,  options = list(opts_hover(css = "fill-opacity:0.75;"), 
+                                  opts_tooltip(css = tooltip_css, opacity = 1), 
+                                  opts_selection(type = 'none'),
+                                  opts_sizing(rescale = T, width = 0.7))
+)
+
+```
+
+```{r}
+  left_join(urbnmapr::counties, df_recent_sums_pop,by = c("county_fips" = 'fips')) %>% 
+  ggplot(mapping = aes(long, lat)) +
+  geom_polygon_interactive(aes( fill = recent_cases, tooltip = tooltip, data_id = county_fips), size = .25) +
+  geom_polygon(data = states, aes(group = group), color = 'black', fill = NA, size = .25)+
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  theme(legend.title = element_text(),
+        legend.key.width = unit(.5, "in")) + 
+  scale_fill_viridis(labels = comma, 
+                     name = 'cases reported\nin last 2 weeks', 
+                     trans = 'log', na.value = 'light gray') + 
+  theme_nothing(legend = T)
 ```
